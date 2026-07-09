@@ -5,3 +5,8 @@ node_modules/
 dist/
 build/
 *.log
+data/*.json
+!data/icp.example.json
+# screenshots de debug locaux
+Capture*.png
+images.png
