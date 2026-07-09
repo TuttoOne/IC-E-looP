@@ -79,9 +79,10 @@ Créez un fichier `.env` à la racine :
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...
-AGENT_ID=agent_...        # l'id de votre ICP Discovery Agent (v3)
-ENVIRONMENT_ID=env_...    # l'id créé à l'étape 2
-PORT=3001
+AGENT_ID=agent_...          # l'id de votre ICP Questioning Agent
+SCORING_AGENT_ID=agent_...  # l'id de votre ICP Scoring Agent
+ENVIRONMENT_ID=env_...      # l'id créé à l'étape 2
+PORT=3010
 ```
 
 ## 4. Lancer
