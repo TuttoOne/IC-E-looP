@@ -5,3 +5,6 @@ node_modules/
 dist/
 build/
 *.log
+
+# API endpoint documentation — kept local, not published to the public repo
+Documentation endpoints API*.pdf
