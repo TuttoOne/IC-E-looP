@@ -22,6 +22,7 @@ app.use(express.static(__dirname));
 
 const API_BASE = "https://api.anthropic.com/v1";
 const BETA_HEADER = "managed-agents-2026-04-01";
+const SILLAGE_API_BASE = "https://api.getsillage.com";
 
 function anthropicHeaders() {
   return {
@@ -30,6 +31,76 @@ function anthropicHeaders() {
     "anthropic-version": "2023-06-01",
     "anthropic-beta": BETA_HEADER,
   };
+}
+
+function sillageHeaders() {
+  return {
+    Authorization: `Bearer ${process.env.SILLAGE_API_KEY}`,
+    "Content-Type": "application/json",
+  };
+}
+
+async function sillageRequest(method, path, body) {
+  const r = await fetch(`${SILLAGE_API_BASE}${path}`, {
+    method,
+    headers: sillageHeaders(),
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+  const text = await r.text();
+  let data;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text };
+  }
+  if (!r.ok) throw new Error(`Sillage ${method} ${path} -> HTTP ${r.status}: ${JSON.stringify(data)}`);
+  return data;
+}
+
+// Real Sillage API calls the Persona Builder agent is allowed to trigger
+// automatically (no human input needed — these are not ask_choice/present_draft).
+const SILLAGE_TOOLS = {
+  sillage_get_persona: () => sillageRequest("GET", "/api/v2/persona"),
+  sillage_upsert_persona: (input) => sillageRequest("PUT", "/api/v2/persona", input),
+  sillage_read_top_accounts: () => sillageRequest("GET", "/api/v2/top-account-list/accounts"),
+  sillage_add_top_accounts: (input) =>
+    sillageRequest("POST", "/api/v2/top-account-list/accounts", input),
+  sillage_enrich_company: (input) =>
+    sillageRequest("POST", "/api/v2/enrich-company-mapping", input),
+  sillage_get_mapping_stage: (input) =>
+    sillageRequest("GET", `/api/v2/account-mapping/${input.mapping_id}/stage`),
+};
+
+// Executes a sillage_* custom tool call for real and posts the result back
+// to the session as a user.custom_tool_result — the Persona Builder agent
+// never waits on the browser for these, only for ask_choice/present_draft.
+async function handleSillageTool(sessionId, event) {
+  const handler = SILLAGE_TOOLS[event.name];
+  if (!handler) return;
+  let resultText;
+  try {
+    const data = await handler(event.input || {});
+    resultText = JSON.stringify(data);
+  } catch (e) {
+    resultText = `Error calling Sillage (${event.name}): ${e.message}`;
+  }
+  try {
+    await fetch(`${API_BASE}/sessions/${sessionId}/events`, {
+      method: "POST",
+      headers: anthropicHeaders(),
+      body: JSON.stringify({
+        events: [
+          {
+            type: "user.custom_tool_result",
+            custom_tool_use_id: event.id,
+            content: [{ type: "text", text: resultText }],
+          },
+        ],
+      }),
+    });
+  } catch (e) {
+    console.error("Failed to post Sillage tool result", e);
+  }
 }
 
 // Keep track of upstream SSE responses per session so we can pass through
@@ -46,14 +117,26 @@ function broadcast(sessionId, event) {
 // 1. Create a session tied to your agent + environment
 app.post("/api/session", async (req, res) => {
   try {
-    const scoring = req.body && req.body.agent === "scoring";
+    const which = (req.body && req.body.agent) || "discovery";
+    const agentId =
+      which === "scoring"
+        ? process.env.SCORING_AGENT_ID
+        : which === "persona"
+        ? process.env.PERSONA_AGENT_ID
+        : process.env.AGENT_ID;
+    const title =
+      which === "scoring"
+        ? "ICP Scoring session"
+        : which === "persona"
+        ? "Persona Builder session"
+        : "ICP Discovery session";
     const r = await fetch(`${API_BASE}/sessions`, {
       method: "POST",
       headers: anthropicHeaders(),
       body: JSON.stringify({
-        agent: scoring ? process.env.SCORING_AGENT_ID : process.env.AGENT_ID,
+        agent: agentId,
         environment_id: process.env.ENVIRONMENT_ID,
-        title: scoring ? "ICP Scoring session" : "ICP Discovery session",
+        title,
       }),
     });
     const data = await r.json();
@@ -189,6 +272,9 @@ async function openUpstreamStream(sessionId) {
       try {
         const event = JSON.parse(line.slice(5).trim());
         broadcast(sessionId, event);
+        if (event.type === "agent.custom_tool_use" && SILLAGE_TOOLS[event.name]) {
+          handleSillageTool(sessionId, event);
+        }
       } catch {
         // ignore malformed / keep-alive lines
       }

@@ -1,0 +1,54 @@
+/*
+  IC(E)looP / 1POINT6 — fixed brand tokens
+  Source: graphic charter v1 (2026-07-09), lifted from the pitch deck palette.
+  Do not add new accent colors here without updating the charter.
+*/
+
+:root {
+  /* ---- Surfaces & ink (fixed, do not theme-swap) ---- */
+  --icp-ink: #0D0D0D;         /* dark surface + text-on-paper */
+  --icp-paper: #F4EFE7;       /* warm cream surface + text-on-ink */
+
+  /* ---- The one accent ---- */
+  --icp-signal: #FF5A00;      /* CTAs, focus, key numbers, the loop motif */
+  --icp-signal-soft: #FF7A33; /* hover/active only — never used alone */
+
+  /* ---- Semantic states (separate from the accent) ---- */
+  --icp-good: #2F9E4F;        /* ready / success only */
+  --icp-bad: #D93636;         /* errors only — never decorative */
+  --icp-warn: var(--icp-signal); /* "waiting on a human" reuses the brand accent on purpose */
+
+  /* ---- Alpha ladder, ink-on-paper ---- */
+  --icp-ink-08: rgba(13, 13, 13, 0.08);
+  --icp-ink-14: rgba(13, 13, 13, 0.14);
+  --icp-ink-40: rgba(13, 13, 13, 0.40);
+  --icp-ink-62: rgba(13, 13, 13, 0.62);
+  --icp-ink-82: rgba(13, 13, 13, 0.82);
+
+  /* ---- Alpha ladder, paper-on-ink ---- */
+  --icp-paper-08: rgba(244, 239, 231, 0.08);
+  --icp-paper-14: rgba(244, 239, 231, 0.14);
+  --icp-paper-40: rgba(244, 239, 231, 0.40);
+  --icp-paper-62: rgba(244, 239, 231, 0.62);
+  --icp-paper-82: rgba(244, 239, 231, 0.82);
+
+  /* ---- Type ---- */
+  --icp-font-display: 'Anton', -apple-system, 'Segoe UI', sans-serif;
+  --icp-font-body: 'Archivo', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --icp-font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* ---- Spacing scale (px) ---- */
+  --icp-space-1: 4px;
+  --icp-space-2: 8px;
+  --icp-space-3: 12px;
+  --icp-space-4: 16px;
+  --icp-space-5: 24px;
+  --icp-space-6: 32px;
+  --icp-space-7: 48px;
+  --icp-space-8: 64px;
+
+  /* ---- Radius scale ---- */
+  --icp-radius-sm: 8px;   /* inputs, small controls */
+  --icp-radius-md: 12px;  /* cards */
+  --icp-radius-pill: 20px; /* status pills only */
+}

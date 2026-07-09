@@ -2,23 +2,50 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>ICP Discovery Agent</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1A1D23; background: #FAFAFA; }
+  #app-root { max-width: 720px; height: 100dvh; margin: 0 auto; display: flex; flex-direction: column; background: #fff; box-shadow: 0 0 0 1px #E4E6EA; }
+  #header { flex: none; border-bottom: 1px solid #E4E6EA; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; }
+  #messages { flex: 1; overflow-y: auto; scroll-behavior: smooth; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+  #composer { flex: none; border-top: 1px solid #E4E6EA; padding: 12px 16px; display: flex; gap: 8px; align-items: flex-end; background: #fff; }
+  #input-box { flex: 1; resize: none; border: 1px solid #D1D5DB; border-radius: 10px; padding: 10px 12px; font-size: 14px; font-family: inherit; outline: none; max-height: 140px; overflow-y: auto; transition: border-color 0.15s; }
+  #input-box:focus { border-color: #1A1D23; }
+  #input-box:disabled { background: #F9FAFB; color: #9CA3AF; }
+  #send-btn { background: #1A1D23; color: white; border: none; border-radius: 10px; padding: 0 18px; height: 40px; font-size: 14px; cursor: pointer; font-weight: 500; flex: none; transition: opacity 0.15s; }
+  #send-btn:disabled { opacity: 0.4; cursor: default; }
+  #status-pill { font-size: 12px; padding: 4px 10px; border-radius: 20px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  #status-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  #status-pill.busy .dot { animation: pulse 1.1s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+  .typing-dots span { display: inline-block; width: 6px; height: 6px; margin-right: 3px; border-radius: 50%; background: #9CA3AF; animation: bounce 1.2s infinite ease-in-out; }
+  .typing-dots span:nth-child(2) { animation-delay: 0.15s; }
+  .typing-dots span:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes bounce { 0%, 60%, 100% { transform: translateY(0); opacity: 0.5; } 30% { transform: translateY(-4px); opacity: 1; } }
+  .spinner { width: 13px; height: 13px; border: 2px solid #E4E6EA; border-top-color: #9CA3AF; border-radius: 50%; animation: spin 0.7s linear infinite; flex: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #typing-elapsed { font-size: 11px; color: #9CA3AF; }
+  @media (max-width: 720px) { #app-root { box-shadow: none; } }
+</style>
 </head>
 <body>
-<div id="app-root" style="max-width: 720px; margin: 40px auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1A1D23;">
-  <div style="border-bottom: 1px solid #E4E6EA; padding: 0 0 16px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
+<div id="app-root">
+  <div id="header">
     <div>
       <div style="font-size: 18px; font-weight: 600;">ICP Discovery Agent</div>
       <div style="font-size: 13px; color: #6B7280; margin-top: 2px;">Connected via Claude Managed Agents</div>
     </div>
-    <div id="status-pill" style="font-size: 12px; padding: 4px 10px; border-radius: 20px; background: #F0FDF4; color: #15803D; border: 1px solid #BBF7D0;">Connecting...</div>
+    <div id="status-pill"><span class="dot"></span><span id="status-text">Connecting...</span></div>
   </div>
 
-  <div id="messages" style="display: flex; flex-direction: column; gap: 14px; min-height: 200px; padding-bottom: 12px;"></div>
+  <div id="messages"></div>
 
-  <div style="display: flex; gap: 8px; margin-top: 8px; position: sticky; bottom: 0; background: #fff; padding: 8px 0;">
-    <textarea id="input-box" rows="1" placeholder="Type your message..." style="flex: 1; resize: none; border: 1px solid #D1D5DB; border-radius: 10px; padding: 10px 12px; font-size: 14px; font-family: inherit; outline: none;"></textarea>
-    <button id="send-btn" style="background: #1A1D23; color: white; border: none; border-radius: 10px; padding: 0 18px; font-size: 14px; cursor: pointer; font-weight: 500;">Send</button>
+  <div id="composer">
+    <textarea id="input-box" rows="1" placeholder="Type your message..."></textarea>
+    <button id="send-btn" disabled>Send</button>
   </div>
 </div>
 
@@ -31,19 +58,77 @@
   const input = document.getElementById("input-box");
   const sendBtn = document.getElementById("send-btn");
   const statusPill = document.getElementById("status-pill");
+  const statusText = document.getElementById("status-text");
 
+  // Tones: "idle" (ready to type) · "busy" (model call in flight — shows the
+  // typing indicator) · "waiting" (paused on a card, e.g. ask_choice/present_draft
+  // — visually similar to busy but no typing dots, since the agent isn't computing)
+  // · "error".
   function setStatus(text, tone) {
     const tones = {
       idle: ["#F0FDF4", "#15803D", "#BBF7D0"],
       busy: ["#FFF7ED", "#C2410C", "#FED7AA"],
+      waiting: ["#FFF7ED", "#C2410C", "#FED7AA"],
       error: ["#FEF2F2", "#B91C1C", "#FCA5A5"],
     };
     const [bg, fg, bd] = tones[tone] || tones.idle;
-    statusPill.textContent = text;
+    statusText.textContent = text;
     statusPill.style.background = bg;
     statusPill.style.color = fg;
-    statusPill.style.borderColor = bd;
+    statusPill.style.border = "1px solid " + bd;
+    statusPill.classList.toggle("busy", tone === "busy");
+
+    const inputDisabled = tone === "busy" || tone === "waiting" || !sessionId;
+    input.disabled = inputDisabled;
+    sendBtn.disabled = inputDisabled || !input.value.trim();
+    if (!inputDisabled) input.focus();
+
+    if (tone === "busy") showTyping(); else hideTyping();
   }
+
+  // Spinner + "..." bubble shown while waiting for the agent. Scoring turns can
+  // take minutes on a cold cloud container, so an elapsed-time readout kicks in
+  // after 5s to make clear it's still working rather than frozen.
+  let typingEl = null;
+  let typingInterval = null;
+  function showTyping() {
+    if (typingEl) return;
+    const start = Date.now();
+    typingEl = document.createElement("div");
+    typingEl.style.cssText = "align-self: flex-start; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 12px; background: #F3F4F6;";
+    typingEl.innerHTML =
+      '<span class="spinner"></span>' +
+      '<span class="typing-dots"><span></span><span></span><span></span></span>' +
+      '<span id="typing-elapsed"></span>';
+    messagesEl.appendChild(typingEl);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    const elapsedEl = typingEl.querySelector("#typing-elapsed");
+    typingInterval = setInterval(() => {
+      const s = Math.floor((Date.now() - start) / 1000);
+      elapsedEl.textContent = s >= 5 ? `still working… ${s}s` : "";
+    }, 1000);
+  }
+  function hideTyping() {
+    if (typingEl) { typingEl.remove(); typingEl = null; }
+    if (typingInterval) { clearInterval(typingInterval); typingInterval = null; }
+  }
+
+  // Insert new content before the typing indicator (if any) so it stays last.
+  function appendMessage(node) {
+    if (typingEl) messagesEl.insertBefore(node, typingEl);
+    else messagesEl.appendChild(node);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  // Auto-grow the textarea with content, capped by max-height (CSS handles the scroll past that).
+  function autoResize() {
+    input.style.height = "auto";
+    input.style.height = input.scrollHeight + "px";
+  }
+  input.addEventListener("input", () => {
+    autoResize();
+    sendBtn.disabled = input.disabled || !input.value.trim();
+  });
 
   function bubble(role, text) {
     const wrap = document.createElement("div");
@@ -54,8 +139,7 @@
     }`;
     b.textContent = text;
     wrap.appendChild(b);
-    messagesEl.appendChild(wrap);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    appendMessage(wrap);
   }
 
   function btnStyle(bg, fg) {
@@ -180,8 +264,7 @@
     actions.appendChild(rejectBtn);
     card.appendChild(actions);
     card.appendChild(editZone);
-    messagesEl.appendChild(card);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    appendMessage(card);
   }
 
   // The model occasionally emits `options` as a malformed string instead of
@@ -253,8 +336,7 @@
 
     card.appendChild(opts);
     card.appendChild(freeZone);
-    messagesEl.appendChild(card);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    appendMessage(card);
   }
 
   // Renders the scoring agent's JSON output as cards. Returns false when the
@@ -338,8 +420,7 @@
       });
     }
 
-    messagesEl.appendChild(card);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    appendMessage(card);
   }
 
   // agent.custom_tool_use with name "submit_ranking" — the Scoring Agent's
@@ -391,10 +472,110 @@
       card.appendChild(none);
     }
 
-    messagesEl.appendChild(card);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    appendMessage(card);
 
     sendToolResult(evt.id, "Ranking displayed to the user.");
+    startPersonaBuilder(evt);
+  }
+
+  // agent.custom_tool_use with name "submit_persona_result" — the Persona
+  // Builder agent's structured final output after the Sillage write sequence.
+  function personaResultCard(evt) {
+    const p = evt.input || {};
+    const persona = p.persona || {};
+    const card = document.createElement("div");
+    card.style.cssText = "align-self: flex-start; max-width: 90%; border: 1px solid #BBF7D0; background: #F0FDF4; border-radius: 12px; padding: 14px 16px;";
+
+    const badge = document.createElement("div");
+    badge.textContent = "Persona configured — " + (p.segment_name || p.segment_id || "");
+    badge.style.cssText = "font-size: 11px; font-weight: 600; color: #15803D; background: #DCFCE7; display: inline-block; padding: 2px 8px; border-radius: 20px; margin-bottom: 8px;";
+    card.appendChild(badge);
+
+    [
+      ["Job titles", (persona.job_title || []).join(", ")],
+      ["Excluded titles", (persona.exclude_job_title || []).join(", ")],
+      ["Seniority", (persona.seniority || []).join(", ")],
+      ["Headcount", (persona.headcount || []).join(", ")],
+      ["Industry", (persona.industry || []).join(", ")],
+      ["Location", (persona.location || []).join(", ")],
+    ].forEach(([label, value]) => {
+      const row = document.createElement("div");
+      row.style.cssText = "display: flex; font-size: 13px; gap: 8px; margin-bottom: 4px;";
+      const l = document.createElement("span");
+      l.textContent = label + " :";
+      l.style.cssText = "color: #6B7280; min-width: 120px; flex: none;";
+      const v = document.createElement("span");
+      v.textContent = value || "—";
+      v.style.fontWeight = "500";
+      row.appendChild(l);
+      row.appendChild(v);
+      card.appendChild(row);
+    });
+
+    if (persona.additional_info) {
+      const info = document.createElement("div");
+      info.textContent = persona.additional_info;
+      info.style.cssText = "font-size: 12px; color: #6B7280; margin-top: 8px; font-style: italic; white-space: pre-wrap;";
+      card.appendChild(info);
+    }
+
+    if ((p.top_accounts_added || []).length) {
+      const t = document.createElement("div");
+      t.textContent = "Top accounts added: " + p.top_accounts_added.join(", ");
+      t.style.cssText = "font-size: 12px; color: #6B7280; margin-top: 8px;";
+      card.appendChild(t);
+    }
+    if ((p.accounts_enriching || []).length) {
+      const t = document.createElement("div");
+      t.textContent = "Enrichment triggered on: " + p.accounts_enriching.join(", ");
+      t.style.cssText = "font-size: 12px; color: #6B7280; margin-top: 4px;";
+      card.appendChild(t);
+    }
+
+    if ((p.handoff_table || []).length) {
+      const title = document.createElement("div");
+      title.textContent = "Handoff to signal-detection agents";
+      title.style.cssText = "font-size: 12px; font-weight: 600; color: #4338CA; margin: 10px 0 4px;";
+      card.appendChild(title);
+      p.handoff_table.forEach((h) => {
+        const row = document.createElement("div");
+        row.textContent = "• " + h.source_dimension + " (" + h.signal_weight + ") → " + h.agent_type + " — " + h.parameters;
+        row.style.cssText = "font-size: 12px; color: #6B7280; line-height: 1.4; margin-bottom: 3px;";
+        card.appendChild(row);
+      });
+    }
+
+    if ((p.disqualifiants_to_reapply || []).length) {
+      const title = document.createElement("div");
+      title.textContent = "Disqualifiers to re-apply downstream";
+      title.style.cssText = "font-size: 12px; font-weight: 600; color: #C2410C; margin: 10px 0 4px;";
+      card.appendChild(title);
+      p.disqualifiants_to_reapply.forEach((d) => {
+        const row = document.createElement("div");
+        row.textContent = "• " + d;
+        row.style.cssText = "font-size: 12px; color: #6B7280; line-height: 1.4; margin-bottom: 3px;";
+        card.appendChild(row);
+      });
+    }
+
+    if (p.reachability_gap_status) {
+      const g = document.createElement("div");
+      g.textContent = "Reachability gap: " + p.reachability_gap_status;
+      g.style.cssText = "font-size: 12px; color: #6B7280; margin-top: 8px;";
+      card.appendChild(g);
+    }
+
+    appendMessage(card);
+    sendToolResult(evt.id, "Persona result displayed to the user.");
+  }
+
+  // Passive one-line trace for sillage_* tool calls — the backend executes
+  // these for real and auto-replies, so there's nothing for the user to do.
+  function sillageLogLine(evt) {
+    const line = document.createElement("div");
+    line.style.cssText = "align-self: flex-start; font-size: 12px; color: #9CA3AF; font-family: ui-monospace, monospace; padding: 2px 4px;";
+    line.textContent = "→ Sillage: " + evt.name;
+    appendMessage(line);
   }
 
   // Generic confirmation for built-in / MCP tools gated by a permission policy
@@ -426,8 +607,7 @@
     row.appendChild(allow);
     row.appendChild(deny);
     card.appendChild(row);
-    messagesEl.appendChild(card);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    appendMessage(card);
   }
 
   function handleEvent(evt) {
@@ -444,6 +624,8 @@
         else if (evt.name === "ask_choice") choiceCard(evt);
         else if (evt.name === "submit_segments") startScoring(evt);
         else if (evt.name === "submit_ranking") renderRanking(evt);
+        else if (evt.name === "submit_persona_result") personaResultCard(evt);
+        else if (evt.name && evt.name.startsWith("sillage_")) sillageLogLine(evt);
         break;
       case "agent.tool_use":
       case "agent.mcp_tool_use":
@@ -452,7 +634,7 @@
         break;
       case "session.status_idle":
         if (evt.stop_reason?.type === "requires_action") {
-          setStatus("Waiting for your answer", "busy");
+          setStatus("Waiting for your answer above", "waiting");
         } else {
           setStatus("Ready", "idle");
         }
@@ -468,9 +650,14 @@
     es.onerror = () => setStatus("Connection lost", "error");
   }
 
+  // Kept so the Persona Builder (started after scoring) can receive the same
+  // 8-dimension ICP-01 segments the Scoring Agent scored, not just the ranking.
+  let lastValidatedSegments = null;
+
   // Called when the questioning agent signals that all segments were
   // validated (submit_segments): switch the UI to a fresh scoring session.
   async function startScoring(evt) {
+    lastValidatedSegments = evt.input;
     sendToolResult(evt.id, "Segments handed off to the Scoring Agent.");
     bubble("assistant", "✅ Segments validated — starting the Scoring Agent…");
     setStatus("Connecting to the Scoring Agent...", "busy");
@@ -497,6 +684,40 @@
     sendMessage(
       "Here are the ICP segments validated by the user. Score them using your methodology and return the ranking.\n\n" +
         JSON.stringify(evt.input, null, 2),
+      true
+    );
+  }
+
+  // Called right after the Scoring Agent's ranking is shown: hands the
+  // retained segment(s) + their 8-dimension source data to the Persona
+  // Builder, which will ask for top account domains itself.
+  async function startPersonaBuilder(evt) {
+    bubble("assistant", "Starting the Persona Builder for the retained segment(s)…");
+    setStatus("Connecting to the Persona Builder...", "busy");
+    let r, data;
+    try {
+      r = await fetch(`${BACKEND}/api/session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent: "persona" }),
+      });
+      data = await r.json();
+    } catch (err) {
+      setStatus("Connection error", "error");
+      bubble("assistant", "Backend unreachable while starting the Persona Builder: " + err.message);
+      return;
+    }
+    if (!r.ok) {
+      setStatus("Connection error", "error");
+      bubble("assistant", "Could not create the Persona Builder session: " + JSON.stringify(data));
+      return;
+    }
+    sessionId = data.sessionId;
+    connectStream();
+    sendMessage(
+      "Here is the validated ICP-01 segment data and the ICP-02 ranking. Build the Sillage persona for the retained segment (ask which one first if more than one is retained), following the mandatory checkpoint before writing.\n\n" +
+        "ICP-01 segments:\n" + JSON.stringify(lastValidatedSegments, null, 2) + "\n\n" +
+        "ICP-02 ranking:\n" + JSON.stringify(evt.input, null, 2),
       true
     );
   }
@@ -530,6 +751,8 @@
     const text = input.value.trim();
     if (!text || !sessionId) return;
     input.value = "";
+    autoResize();
+    sendBtn.disabled = true;
     sendMessage(text);
   };
   input.addEventListener("keydown", (e) => {
