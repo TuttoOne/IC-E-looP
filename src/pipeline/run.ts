@@ -1,5 +1,5 @@
 /* Orchestrateur: ICP -> Sillage (écoute + signaux) -> Full Enrich (détails + bonne personne)
-   -> HubSpot (Contact/Company/Deal). Les étapes "Failure reasons" / "Refine ICP" sont un job
+   -> CRM tsplus-outreach (Prospect). Les étapes "Failure reasons" / "Refine ICP" sont un job
    séparé (npm run refine-icp), volontairement pas ré-exécuté à chaque run.
    Usage: npm run pipeline [-- --dry-run] */
 
@@ -7,8 +7,8 @@ import { env } from '../config/env.js';
 import { loadIcp } from '../config/icp.js';
 import { SillageClient, type SillageSignal } from '../sillage/client.js';
 import { FullEnrichClient } from '../fullenrich/client.js';
-import { HubspotClient } from '../hubspot/client.js';
-import { pushQualifiedLead, type QualifiedLead } from '../hubspot/pipeline.js';
+import { TsplusCrmClient } from '../crm/client.js';
+import { pushQualifiedLead, type QualifiedLead } from '../crm/pipeline.js';
 
 const DRY_RUN = process.argv.includes('--dry-run');
 
@@ -28,10 +28,14 @@ async function main() {
 
   const sillage = new SillageClient(env.sillageApiKey, env.sillageApiBase);
   const fullEnrich = new FullEnrichClient(env.fullEnrichApiKey);
-  const hubspot = new HubspotClient(env.hubspotToken);
+  const crm = new TsplusCrmClient({
+    baseUrl: env.crmApiBase,
+    username: env.crmUsername,
+    password: env.crmPassword,
+  });
 
   console.log(`ICP: ${icp.summary || '(pas de résumé)'}`);
-  console.log(DRY_RUN ? '--dry-run: aucune écriture HubSpot ne sera faite.\n' : 'Mode réel: des Contact/Company/Deal seront créés.\n');
+  console.log(DRY_RUN ? '--dry-run: aucune écriture CRM ne sera faite.\n' : 'Mode réel: des prospects seront créés dans le CRM.\n');
 
   const [problemDiscussions, triggerSignals] = await Promise.all([
     sillage.findProblemDiscussions(icp),
@@ -93,8 +97,9 @@ async function main() {
       continue;
     }
 
-    const result = await pushQualifiedLead(hubspot, lead);
-    console.log(`- pushé: ${lead.email} -> contact ${result.contactId}, deal ${result.dealId}`);
+    const result = await pushQualifiedLead(crm, lead, { sequenceId: env.crmSequenceId });
+    const verb = result.created ? 'créé' : 'déjà présent';
+    console.log(`- pushé: ${lead.email} -> prospect ${result.prospectId} (${verb})${result.enrolled ? ', enrôlé' : ''}`);
     pushed++;
   }
 

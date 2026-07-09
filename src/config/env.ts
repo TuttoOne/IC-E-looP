@@ -10,8 +10,20 @@ export const env = {
   get fullEnrichApiKey() {
     return required('FULLENRICH_API_KEY');
   },
-  get hubspotToken() {
-    return required('HUBSPOT_PRIVATE_APP_TOKEN');
+  /** Backend CRM tsplus-outreach (FastAPI), joignable via Tailscale. */
+  get crmApiBase() {
+    return process.env.CRM_API_BASE || 'http://100.102.244.19:8221';
+  },
+  get crmUsername() {
+    return required('CRM_USERNAME');
+  },
+  get crmPassword() {
+    return required('CRM_PASSWORD');
+  },
+  /** Séquence d'enrôlement optionnelle (livraison opt-in ; vide = création du prospect uniquement). */
+  get crmSequenceId(): number | undefined {
+    const raw = process.env.CRM_SEQUENCE_ID;
+    return raw ? Number(raw) : undefined;
   },
   get sillageApiKey() {
     return required('SILLAGE_API_KEY');
