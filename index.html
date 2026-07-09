@@ -342,6 +342,61 @@
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
+  // agent.custom_tool_use with name "submit_ranking" — the Scoring Agent's
+  // structured final output (strict schema, no free-text JSON guessing).
+  function renderRanking(evt) {
+    const { ranking, segments_killed } = evt.input || {};
+    (ranking || []).forEach(scoreCard);
+
+    const card = document.createElement("div");
+    card.style.cssText = "align-self: flex-start; max-width: 90%; border: 1px solid #BBF7D0; background: #F0FDF4; border-radius: 12px; padding: 14px 16px;";
+
+    const badge = document.createElement("div");
+    badge.textContent = "Scoring complete";
+    badge.style.cssText = "font-size: 11px; font-weight: 600; color: #15803D; background: #DCFCE7; display: inline-block; padding: 2px 8px; border-radius: 20px; margin-bottom: 8px;";
+    card.appendChild(badge);
+
+    const summary = document.createElement("div");
+    summary.textContent = (ranking || []).length + " segment(s) retained and ranked.";
+    summary.style.cssText = "font-size: 13px; font-weight: 500; margin-bottom: 6px;";
+    card.appendChild(summary);
+
+    const list = document.createElement("ol");
+    list.style.cssText = "margin: 0 0 8px; padding-left: 18px; font-size: 13px;";
+    (ranking || [])
+      .slice()
+      .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0))
+      .forEach((seg) => {
+        const li = document.createElement("li");
+        li.textContent = (seg.segment_name || seg.segment_id) + " — " + seg.weighted_total + " / 5";
+        list.appendChild(li);
+      });
+    card.appendChild(list);
+
+    if (segments_killed && segments_killed.length) {
+      const killedTitle = document.createElement("div");
+      killedTitle.textContent = "Killed (Kill Gate 1)";
+      killedTitle.style.cssText = "font-size: 12px; font-weight: 600; color: #B91C1C; margin: 6px 0 4px;";
+      card.appendChild(killedTitle);
+      segments_killed.forEach((k) => {
+        const row = document.createElement("div");
+        row.textContent = "• " + k.segment_id + " — " + k.reason;
+        row.style.cssText = "font-size: 12px; color: #6B7280; line-height: 1.4; margin-bottom: 2px;";
+        card.appendChild(row);
+      });
+    } else {
+      const none = document.createElement("div");
+      none.textContent = "No segment killed.";
+      none.style.cssText = "font-size: 12px; color: #6B7280;";
+      card.appendChild(none);
+    }
+
+    messagesEl.appendChild(card);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+
+    sendToolResult(evt.id, "Ranking displayed to the user.");
+  }
+
   // Generic confirmation for built-in / MCP tools gated by a permission policy
   function confirmationCard(evt, toolLabel) {
     const card = document.createElement("div");
@@ -388,6 +443,7 @@
         if (evt.name === "present_draft") draftCard(evt);
         else if (evt.name === "ask_choice") choiceCard(evt);
         else if (evt.name === "submit_segments") startScoring(evt);
+        else if (evt.name === "submit_ranking") renderRanking(evt);
         break;
       case "agent.tool_use":
       case "agent.mcp_tool_use":

@@ -5,7 +5,7 @@
     "speed": "standard"
   },
   "description": "Scores and ranks ICP segments produced by the Questioning Agent (8 dimensions, hypotheses included) against 4 judging criteria (market_size, urgency, reachability, ltv_proxy), applies Kill Gate 1, and surfaces unscoreable dimensions as tagged knowledge gaps for Phase 2 agents rather than guessing scores.",
-  "system": "You are the ICP Scoring Agent in a multi-agent ICP discovery pipeline.\n\nYou receive segments from the ICP Questioning Agent, each described by 8 dimensions: firmographics, tech_stack_signals, buyer_persona, jtbd, existing_alternatives, trigger_events, budget_authority, reachability. These are hypotheses, some may be thin or unresolved because founder clarification was capped upstream.\n\nAll user-facing text (questions, options) is in English, regardless of the language the user writes in.\n\nCLARIFY BEFORE SCORING — STRICT:\n- For each criterion the input does not support confidently, first try to resolve it by asking the founder with the ask_choice tool: 2 to 4 short, concrete, plausible answer options (max 8 words each), the last one always being \"I don't know yet\". The options field must be a JSON array of strings.\n- Emit at most ONE ask_choice call per turn — never several tool calls in parallel. Ask one question, wait for the answer, then decide the next question based on it.\n- Hard cap: 4 questions total across all segments, prioritized by scoring impact — reachability first (it has kill power), then urgency, ltv_proxy, market_size. Never ask about something the input already answers.\n- If the answer is \"I don't know yet\", or the cap is reached, mark the criterion unscoreable and add a knowledge gap. Never guess.\n- Never write summaries, recaps, transitions, or explanations of what you are doing. No plain text before, between, or after the questions — your only output besides ask_choice calls is the final JSON.\n\nSCORING:\nScore each segment on four criteria, using this mapping:\nmarket_size from firmographics and existing_alternatives.\nurgency from trigger_events and jtbd.\nreachability from reachability, buyer_persona, and reachable_channels if provided.\nltv_proxy from firmographics and budget_authority.\n\nFor each criterion, use the 0-5 rubric provided. If the relevant input fields and the founder's answers don't support a confident score, do not guess. Mark that criterion as unscoreable and add an entry to knowledge_gaps explaining what's missing and which downstream agent should resolve it (Persona Builder, Stakeholder Mapper, Content Listener, or Signal Aggregator).\n\nNever treat unscoreable as equivalent to a score of 0. A score of 0 on reachability must only be used when the input actively confirms no channel or decision-maker path exists, not when the information is simply absent.\n\nCompute weighted_total using equal weights across whichever criteria were scored, rescaled to sum to 1. Set overall_confidence based on how many of the 4 criteria were actually scored (all 4 = high, 3 = medium, 2 or fewer = low).\n\nApply Kill Gate 1: kill only segments with a confirmed reachability score of 0. Among the rest, retain at most 3, ranked by weighted_total.\n\nPass through the hypotheses_to_test you received, reordered by relevance to the top-ranked criteria, and append any new hypotheses implied by unresolved knowledge_gaps.\n\nOnce clarification is done, output strictly as JSON matching the schema you were given. No prose outside the JSON.",
+  "system": "You are the ICP Scoring Agent in a multi-agent ICP discovery pipeline.\n\nYou receive segments from the ICP Questioning Agent, each described by 8 dimensions: firmographics, tech_stack_signals, buyer_persona, jtbd, existing_alternatives, trigger_events, budget_authority, reachability. These are hypotheses, some may be thin or unresolved because founder clarification was capped upstream.\n\nAll user-facing text (questions, options) is in English, regardless of the language the user writes in.\n\nCLARIFY BEFORE SCORING — STRICT:\n- For each criterion the input does not support confidently, first try to resolve it by asking the founder with the ask_choice tool: 2 to 4 short, concrete, plausible answer options (max 8 words each), the last one always being \"I don't know yet\". The options field must be a JSON array of strings.\n- Emit at most ONE ask_choice call per turn — never several tool calls in parallel. Ask one question, wait for the answer, then decide the next question based on it.\n- Hard cap: 4 questions total across all segments, prioritized by scoring impact — reachability first (it has kill power), then urgency, ltv_proxy, market_size. Never ask about something the input already answers.\n- If the answer is \"I don't know yet\", or the cap is reached, mark the criterion unscoreable and add a knowledge gap. Never guess.\n- Never write summaries, recaps, transitions, or explanations of what you are doing. No plain text before, between, or after the questions — your only output besides tool calls is text during the clarification phase, and none at all afterward.\n\nSCORING:\nScore each segment on four criteria, using this mapping:\nmarket_size from firmographics and existing_alternatives.\nurgency from trigger_events and jtbd.\nreachability from reachability, buyer_persona, and reachable_channels if provided.\nltv_proxy from firmographics and budget_authority.\n\nFor each criterion, use the 0-5 rubric provided. If the relevant input fields and the founder's answers don't support a confident score, do not guess: set value to null, confidence to \"unscoreable\", and add a knowledge gap. Never treat unscoreable as equivalent to a score of 0 — a value of 0 on reachability must only be used when the input actively confirms no channel or decision-maker path exists, not when the information is simply absent.\n\nCompute weighted_total using equal weights across whichever criteria were scored (value is not null), rescaled to sum to 1. Set overall_confidence based on how many of the 4 criteria were actually scored (all 4 = high, 3 = medium, 2 or fewer = low).\n\nApply Kill Gate 1: kill only segments with a confirmed reachability value of 0. Among the rest, retain at most 3, ranked by weighted_total, and rank them 1..N accordingly.\n\nHAND OFF — STRICT:\nOnce every segment is scored, call submit_ranking exactly once with the complete ranking and the list of killed segments (empty array if none). This is your only way to deliver results — never write the ranking as prose or JSON text, and never call it more than once.",
   "mcp_servers": [],
   "tools": [
     {
@@ -24,6 +24,100 @@
           }
         },
         "required": ["question", "options"]
+      }
+    },
+    {
+      "type": "custom",
+      "name": "submit_ranking",
+      "description": "Deliver the final scored, ranked segments. Call this exactly once, after every segment has been scored (or marked unscoreable per criterion) — never write the ranking as text.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ranking": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rank": { "type": "integer" },
+                "segment_id": { "type": "string" },
+                "segment_name": { "type": "string" },
+                "scores": {
+                  "type": "object",
+                  "properties": {
+                    "market_size": {
+                      "type": "object",
+                      "properties": {
+                        "value": { "type": ["integer", "null"] },
+                        "confidence": { "type": "string", "enum": ["high", "medium", "low", "unscoreable"] },
+                        "rationale": { "type": "string" }
+                      },
+                      "required": ["value", "confidence", "rationale"]
+                    },
+                    "urgency": {
+                      "type": "object",
+                      "properties": {
+                        "value": { "type": ["integer", "null"] },
+                        "confidence": { "type": "string", "enum": ["high", "medium", "low", "unscoreable"] },
+                        "rationale": { "type": "string" }
+                      },
+                      "required": ["value", "confidence", "rationale"]
+                    },
+                    "reachability": {
+                      "type": "object",
+                      "properties": {
+                        "value": { "type": ["integer", "null"] },
+                        "confidence": { "type": "string", "enum": ["high", "medium", "low", "unscoreable"] },
+                        "rationale": { "type": "string" }
+                      },
+                      "required": ["value", "confidence", "rationale"]
+                    },
+                    "ltv_proxy": {
+                      "type": "object",
+                      "properties": {
+                        "value": { "type": ["integer", "null"] },
+                        "confidence": { "type": "string", "enum": ["high", "medium", "low", "unscoreable"] },
+                        "rationale": { "type": "string" }
+                      },
+                      "required": ["value", "confidence", "rationale"]
+                    }
+                  },
+                  "required": ["market_size", "urgency", "reachability", "ltv_proxy"]
+                },
+                "weighted_total": { "type": "number" },
+                "overall_confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+                "knowledge_gaps": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "dimension": { "type": "string" },
+                      "why_it_matters": { "type": "string" },
+                      "resolve_via": { "type": "string" }
+                    },
+                    "required": ["dimension", "why_it_matters", "resolve_via"]
+                  }
+                },
+                "hypotheses_to_test": { "type": "array", "items": { "type": "string" } }
+              },
+              "required": [
+                "rank", "segment_id", "segment_name", "scores", "weighted_total",
+                "overall_confidence", "knowledge_gaps", "hypotheses_to_test"
+              ]
+            }
+          },
+          "segments_killed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "segment_id": { "type": "string" },
+                "reason": { "type": "string" }
+              },
+              "required": ["segment_id", "reason"]
+            }
+          }
+        },
+        "required": ["ranking", "segments_killed"]
       }
     },
     {
