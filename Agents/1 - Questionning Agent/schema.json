@@ -1,0 +1,50 @@
+{
+  "input_schema": {
+    "product": {
+      "description": "string",
+      "for_whom": "string (optional)"
+    },
+    "jtbd": "string",
+    "founder_insights": "string",
+    "reachable_channels": ["string (optional)"],
+    "prior_clarification_rounds": [
+      {
+        "round": "integer",
+        "questions": [
+          {"id": "string", "gap": "string", "question": "string"}
+        ],
+        "answers": [
+          {"id": "string", "answer": "string"}
+        ]
+      }
+    ]
+  },
+  "output_schema_needs_clarification": {
+    "status": "needs_clarification",
+    "round": "integer, max 2",
+    "questions": [
+      {"id": "string", "gap": "firmographics | tech_stack_signals | buyer_persona | jtbd | existing_alternatives | trigger_events | budget_authority | reachability | product | founder_insights", "question": "string"}
+    ]
+  },
+  "output_schema_ready_for_review": {
+    "status": "ready_for_review",
+    "segments": [
+      {
+        "segment_id": "string",
+        "segment_name": "string",
+        "dimensions": {
+          "firmographics": "string",
+          "tech_stack_signals": "string",
+          "buyer_persona": "string",
+          "jtbd": "string",
+          "existing_alternatives": "string",
+          "trigger_events": "string",
+          "budget_authority": "string",
+          "reachability": "string"
+        },
+        "hypotheses_to_test": ["string"]
+      }
+    ],
+    "human_checkpoint": "string - always present, describes the validation gate before handoff to ICP Scoring Agent"
+  }
+}
