@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <title>ICP Discovery Agent</title>
@@ -9,16 +9,16 @@
   <div style="border-bottom: 1px solid #E4E6EA; padding: 0 0 16px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
     <div>
       <div style="font-size: 18px; font-weight: 600;">ICP Discovery Agent</div>
-      <div style="font-size: 13px; color: #6B7280; margin-top: 2px;">Connecté via Claude Managed Agents</div>
+      <div style="font-size: 13px; color: #6B7280; margin-top: 2px;">Connected via Claude Managed Agents</div>
     </div>
-    <div id="status-pill" style="font-size: 12px; padding: 4px 10px; border-radius: 20px; background: #F0FDF4; color: #15803D; border: 1px solid #BBF7D0;">Connexion...</div>
+    <div id="status-pill" style="font-size: 12px; padding: 4px 10px; border-radius: 20px; background: #F0FDF4; color: #15803D; border: 1px solid #BBF7D0;">Connecting...</div>
   </div>
 
   <div id="messages" style="display: flex; flex-direction: column; gap: 14px; min-height: 200px; padding-bottom: 12px;"></div>
 
   <div style="display: flex; gap: 8px; margin-top: 8px; position: sticky; bottom: 0; background: #fff; padding: 8px 0;">
-    <textarea id="input-box" rows="1" placeholder="Écrivez votre message..." style="flex: 1; resize: none; border: 1px solid #D1D5DB; border-radius: 10px; padding: 10px 12px; font-size: 14px; font-family: inherit; outline: none;"></textarea>
-    <button id="send-btn" style="background: #1A1D23; color: white; border: none; border-radius: 10px; padding: 0 18px; font-size: 14px; cursor: pointer; font-weight: 500;">Envoyer</button>
+    <textarea id="input-box" rows="1" placeholder="Type your message..." style="flex: 1; resize: none; border: 1px solid #D1D5DB; border-radius: 10px; padding: 10px 12px; font-size: 14px; font-family: inherit; outline: none;"></textarea>
+    <button id="send-btn" style="background: #1A1D23; color: white; border: none; border-radius: 10px; padding: 0 18px; font-size: 14px; cursor: pointer; font-weight: 500;">Send</button>
   </div>
 </div>
 
@@ -85,7 +85,7 @@
     card.style.cssText = "align-self: flex-start; max-width: 90%; border: 1px solid #E4E6EA; border-radius: 12px; padding: 14px 16px; background: #fff;";
 
     const badge = document.createElement("div");
-    badge.textContent = "Proposition à valider";
+    badge.textContent = "Proposal to review";
     badge.style.cssText = "font-size: 11px; font-weight: 600; color: #4338CA; background: #EEF2FF; display: inline-block; padding: 2px 8px; border-radius: 20px; margin-bottom: 8px;";
     card.appendChild(badge);
 
@@ -113,8 +113,8 @@
 
     if (note) {
       const n = document.createElement("div");
-      n.textContent = note;
-      n.style.cssText = "font-size: 12px; color: #6B7280; margin-bottom: 10px; font-style: italic;";
+      n.textContent = note.replace(/\\n/g, "\n");
+      n.style.cssText = "font-size: 12px; color: #6B7280; margin-bottom: 10px; font-style: italic; white-space: pre-wrap;";
       card.appendChild(n);
     }
 
@@ -124,10 +124,10 @@
     editZone.style.cssText = "display: none; margin-top: 8px; gap: 6px; flex-direction: column;";
     const editArea = document.createElement("textarea");
     editArea.rows = 2;
-    editArea.placeholder = "Précisez vos modifications...";
+    editArea.placeholder = "Describe your changes...";
     editArea.style.cssText = "border: 1px solid #D1D5DB; border-radius: 8px; padding: 8px; font-size: 13px; font-family: inherit; resize: none;";
     const editSend = document.createElement("button");
-    editSend.textContent = "Envoyer les modifications";
+    editSend.textContent = "Send changes";
     editSend.style.cssText = btnStyle("#1A1D23", "white");
     editZone.appendChild(editArea);
     editZone.appendChild(editSend);
@@ -139,10 +139,10 @@
       return b;
     }
 
-    const validateBtn = makeBtn("Valider", "#15803D", "white");
-    const editBtn = makeBtn("Modifier", "#fff", "#1A1D23");
+    const validateBtn = makeBtn("Validate", "#15803D", "white");
+    const editBtn = makeBtn("Edit", "#fff", "#1A1D23");
     editBtn.style.border = "1px solid #D1D5DB";
-    const rejectBtn = makeBtn("Rejeter", "#fff", "#B91C1C");
+    const rejectBtn = makeBtn("Reject", "#fff", "#B91C1C");
     rejectBtn.style.border = "1px solid #FCA5A5";
 
     function disableAll() {
@@ -152,26 +152,26 @@
 
     validateBtn.onclick = () => {
       disableAll();
-      bubble("user", "Validé : " + title);
-      sendToolResult(evt.id, "Validé tel quel.");
+      bubble("user", "Validated: " + title);
+      sendToolResult(evt.id, "Validated as is.");
     };
     editBtn.onclick = () => (editZone.style.display = "flex");
     editSend.onclick = () => {
       const val = editArea.value.trim();
       if (!val) return;
       disableAll();
-      bubble("user", "Modification demandée : " + val);
-      sendToolResult(evt.id, "L'utilisateur souhaite modifier ce point ainsi : " + val);
+      bubble("user", "Requested change: " + val);
+      sendToolResult(evt.id, "The user wants this changed as follows: " + val);
     };
     rejectBtn.onclick = () => {
       editZone.style.display = "flex";
-      editArea.placeholder = "Pourquoi rejetez-vous cette proposition ? (optionnel)";
-      editSend.textContent = "Confirmer le rejet";
+      editArea.placeholder = "Why are you rejecting this proposal? (optional)";
+      editSend.textContent = "Confirm rejection";
       editSend.onclick = () => {
         disableAll();
         const reason = editArea.value.trim();
-        bubble("user", "Rejeté" + (reason ? " : " + reason : ""));
-        sendToolResult(evt.id, "Rejeté par l'utilisateur." + (reason ? " Raison : " + reason : ""));
+        bubble("user", "Rejected" + (reason ? ": " + reason : ""));
+        sendToolResult(evt.id, "Rejected by the user." + (reason ? " Reason: " + reason : ""));
       };
     };
 
@@ -184,9 +184,22 @@
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
+  // The model occasionally emits `options` as a malformed string instead of
+  // an array (e.g. `a", "b", "c`) — normalize it back into an array.
+  function normalizeOptions(options) {
+    if (Array.isArray(options)) return options;
+    if (typeof options !== "string") return [];
+    try {
+      const parsed = JSON.parse('["' + options + '"]');
+      if (Array.isArray(parsed)) return parsed;
+    } catch {}
+    return options.split(/"\s*,\s*"/).map((s) => s.replace(/^"+|"+$/g, "").trim()).filter(Boolean);
+  }
+
   // agent.custom_tool_use with name "ask_choice"
   function choiceCard(evt) {
-    const { question, options } = evt.input;
+    const { question } = evt.input;
+    const options = normalizeOptions(evt.input.options);
     const card = document.createElement("div");
     card.style.cssText = "align-self: flex-start; max-width: 90%; border: 1px solid #E4E6EA; border-radius: 12px; padding: 14px 16px; background: #fff;";
     const q = document.createElement("div");
@@ -195,19 +208,51 @@
     card.appendChild(q);
     const opts = document.createElement("div");
     opts.style.cssText = "display: flex; flex-wrap: wrap; gap: 8px;";
+
+    const freeZone = document.createElement("div");
+    freeZone.style.cssText = "display: none; margin-top: 8px; gap: 6px; flex-direction: column;";
+    const freeArea = document.createElement("textarea");
+    freeArea.rows = 2;
+    freeArea.placeholder = "Your answer...";
+    freeArea.style.cssText = "border: 1px solid #D1D5DB; border-radius: 8px; padding: 8px; font-size: 13px; font-family: inherit; resize: none;";
+    const freeSend = document.createElement("button");
+    freeSend.textContent = "Send";
+    freeSend.style.cssText = btnStyle("#1A1D23", "white");
+    freeZone.appendChild(freeArea);
+    freeZone.appendChild(freeSend);
+
+    function answer(text) {
+      Array.from(opts.children).forEach((c) => (c.disabled = true));
+      freeArea.disabled = freeSend.disabled = true;
+      card.style.opacity = "0.75";
+      bubble("user", text);
+      sendToolResult(evt.id, text);
+    }
+
     (options || []).forEach((opt) => {
       const b = document.createElement("button");
       b.textContent = opt;
       b.style.cssText = btnStyle("#fff", "#1A1D23") + "border: 1px solid #D1D5DB;";
-      b.onclick = () => {
-        Array.from(opts.children).forEach((c) => (c.disabled = true));
-        card.style.opacity = "0.75";
-        bubble("user", opt);
-        sendToolResult(evt.id, opt);
-      };
+      b.onclick = () => answer(opt);
       opts.appendChild(b);
     });
+
+    const otherBtn = document.createElement("button");
+    otherBtn.textContent = "Other…";
+    otherBtn.style.cssText = btnStyle("#fff", "#6B7280") + "border: 1px dashed #D1D5DB;";
+    otherBtn.onclick = () => {
+      freeZone.style.display = "flex";
+      freeArea.focus();
+    };
+    opts.appendChild(otherBtn);
+
+    freeSend.onclick = () => {
+      const val = freeArea.value.trim();
+      if (val) answer(val);
+    };
+
     card.appendChild(opts);
+    card.appendChild(freeZone);
     messagesEl.appendChild(card);
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
@@ -227,8 +272,8 @@
     const killed = obj.killed_segments || obj.segments_killed || [];
     bubble(
       "assistant",
-      "Scoring terminé — " + segs.length + " segment(s) scoré(s), " +
-        (killed.length ? "éliminé(s) : " + killed.join(", ") : "aucun segment éliminé") + "."
+      "Scoring complete — " + segs.length + " segment(s) scored, " +
+        (killed.length ? "killed: " + killed.join(", ") : "no segment killed") + "."
     );
     return true;
   }
@@ -238,7 +283,7 @@
     card.style.cssText = "align-self: flex-start; max-width: 90%; border: 1px solid #E4E6EA; border-radius: 12px; padding: 14px 16px; background: #fff;";
 
     const badge = document.createElement("div");
-    badge.textContent = seg.rank ? "Scoring — rang #" + seg.rank : "Scoring";
+    badge.textContent = seg.rank ? "Scoring — rank #" + seg.rank : "Scoring";
     badge.style.cssText = "font-size: 11px; font-weight: 600; color: #4338CA; background: #EEF2FF; display: inline-block; padding: 2px 8px; border-radius: 20px; margin-bottom: 8px;";
     card.appendChild(badge);
 
@@ -248,8 +293,8 @@
     card.appendChild(h);
 
     const total = document.createElement("div");
-    const conf = seg.overall_confidence ? " · confiance " + seg.overall_confidence : "";
-    total.textContent = "Score global : " + (seg.weighted_total ?? "—") + " / 5" + conf;
+    const conf = seg.overall_confidence ? " · confidence " + seg.overall_confidence : "";
+    total.textContent = "Overall score: " + (seg.weighted_total ?? "—") + " / 5" + conf;
     total.style.cssText = "font-size: 13px; font-weight: 600; color: #15803D; margin-bottom: 10px;";
     card.appendChild(total);
 
@@ -259,7 +304,7 @@
       const label = document.createElement("div");
       const val = s.score ?? s.value;
       const unscoreable = val === null || val === undefined || s.confidence === "unscoreable";
-      label.textContent = name + " : " + (unscoreable ? "non scorable" : val + "/5");
+      label.textContent = name + ": " + (unscoreable ? "unscoreable" : val + "/5");
       label.style.cssText = "font-size: 13px; font-weight: 500;";
       row.appendChild(label);
       if (!unscoreable) {
@@ -281,7 +326,7 @@
 
     if (Array.isArray(seg.knowledge_gaps) && seg.knowledge_gaps.length) {
       const gapsTitle = document.createElement("div");
-      gapsTitle.textContent = "À vérifier (knowledge gaps)";
+      gapsTitle.textContent = "To verify (knowledge gaps)";
       gapsTitle.style.cssText = "font-size: 12px; font-weight: 600; color: #C2410C; margin: 10px 0 4px;";
       card.appendChild(gapsTitle);
       seg.knowledge_gaps.forEach((g) => {
@@ -302,16 +347,16 @@
     const card = document.createElement("div");
     card.style.cssText = "align-self: flex-start; max-width: 90%; border: 1px solid #FED7AA; background: #FFF7ED; border-radius: 12px; padding: 12px 16px;";
     const q = document.createElement("div");
-    q.textContent = "L'agent souhaite exécuter : " + toolLabel;
+    q.textContent = "The agent wants to run: " + toolLabel;
     q.style.cssText = "font-size: 13px; margin-bottom: 8px;";
     card.appendChild(q);
     const row = document.createElement("div");
     row.style.cssText = "display: flex; gap: 8px;";
     const allow = document.createElement("button");
-    allow.textContent = "Autoriser";
+    allow.textContent = "Allow";
     allow.style.cssText = btnStyle("#15803D", "white");
     const deny = document.createElement("button");
-    deny.textContent = "Refuser";
+    deny.textContent = "Deny";
     deny.style.cssText = btnStyle("#fff", "#B91C1C") + "border: 1px solid #FCA5A5;";
     allow.onclick = () => {
       allow.disabled = deny.disabled = true;
@@ -351,9 +396,9 @@
         break;
       case "session.status_idle":
         if (evt.stop_reason?.type === "requires_action") {
-          setStatus("En attente de votre réponse", "busy");
+          setStatus("Waiting for your answer", "busy");
         } else {
-          setStatus("Prêt", "idle");
+          setStatus("Ready", "idle");
         }
         break;
     }
@@ -364,15 +409,15 @@
     if (es) es.close();
     es = new EventSource(`${BACKEND}/api/session/${sessionId}/stream`);
     es.onmessage = (e) => handleEvent(JSON.parse(e.data));
-    es.onerror = () => setStatus("Connexion perdue", "error");
+    es.onerror = () => setStatus("Connection lost", "error");
   }
 
   // Called when the questioning agent signals that all segments were
   // validated (submit_segments): switch the UI to a fresh scoring session.
   async function startScoring(evt) {
-    sendToolResult(evt.id, "Segments transmis au Scoring Agent.");
-    bubble("assistant", "✅ Segments validés — lancement du Scoring Agent…");
-    setStatus("Connexion au Scoring Agent...", "busy");
+    sendToolResult(evt.id, "Segments handed off to the Scoring Agent.");
+    bubble("assistant", "✅ Segments validated — starting the Scoring Agent…");
+    setStatus("Connecting to the Scoring Agent...", "busy");
     let r, data;
     try {
       r = await fetch(`${BACKEND}/api/session`, {
@@ -382,42 +427,42 @@
       });
       data = await r.json();
     } catch (err) {
-      setStatus("Erreur de connexion", "error");
-      bubble("assistant", "Backend inaccessible pendant le lancement du scoring : " + err.message);
+      setStatus("Connection error", "error");
+      bubble("assistant", "Backend unreachable while starting scoring: " + err.message);
       return;
     }
     if (!r.ok) {
-      setStatus("Erreur de connexion", "error");
-      bubble("assistant", "Impossible de créer la session scoring : " + JSON.stringify(data));
+      setStatus("Connection error", "error");
+      bubble("assistant", "Could not create the scoring session: " + JSON.stringify(data));
       return;
     }
     sessionId = data.sessionId;
     connectStream();
     sendMessage(
-      "Voici les segments ICP validés par l'utilisateur. Score-les selon ta méthodologie et renvoie le classement.\n\n" +
+      "Here are the ICP segments validated by the user. Score them using your methodology and return the ranking.\n\n" +
         JSON.stringify(evt.input, null, 2),
       true
     );
   }
 
   async function startSession() {
-    setStatus("Connexion...", "busy");
+    setStatus("Connecting...", "busy");
     const r = await fetch(`${BACKEND}/api/session`, { method: "POST" });
     const data = await r.json();
     if (!r.ok) {
-      setStatus("Erreur de connexion", "error");
-      bubble("assistant", "Impossible de créer la session : " + JSON.stringify(data));
+      setStatus("Connection error", "error");
+      bubble("assistant", "Could not create the session: " + JSON.stringify(data));
       return;
     }
     sessionId = data.sessionId;
     connectStream();
-    setStatus("Prêt", "idle");
-    sendMessage("Bonjour, je veux définir mes ICP B2B. Pour commencer, demande-moi uniquement quelle est ma solution (mon produit) — une seule question, rien d'autre pour l'instant.", true);
+    setStatus("Ready", "idle");
+    sendMessage("Hi, I want to define my B2B ICPs.", true);
   }
 
   function sendMessage(text, silent) {
     if (!silent) bubble("user", text);
-    setStatus("L'agent réfléchit...", "busy");
+    setStatus("Agent is thinking...", "busy");
     fetch(`${BACKEND}/api/session/${sessionId}/message`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

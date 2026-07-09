@@ -3,65 +3,35 @@
 See [iceloop-brief.md](./iceloop-brief.md) for the project brief.
 
 
-## 1. Déclarer les custom tools dans la console
+## 1. Config des agents (versionnée dans le repo)
 
-Dans l'onglet **Tools** de votre agent (la capture d'écran), ajoutez deux
-`custom tool` avec ces schémas. Les custom tools ne sont pas exécutés par
-Anthropic — c'est votre backend qui reçoit l'appel et renvoie le résultat,
-ce qui correspond exactement au pattern "propose → valide" du system prompt.
+Les configs de référence des agents (system prompt + custom tools) vivent dans
+[`Agents/1 - Questionning Agent/agent.json`](./Agents/1%20-%20Questionning%20Agent/agent.json)
+et [`Agents/2 - Scoring Agent/agent.json`](./Agents/2%20-%20Scoring%20Agent/agent.json).
+Plus de copier-coller dans la console : modifiez le fichier, puis poussez-le
+vers l'API Managed Agents (chaque push crée une nouvelle version de l'agent ;
+les nouvelles sessions la prennent automatiquement) :
 
-```yaml
-tools:
-  - type: custom
-    name: present_draft
-    description: >
-      Present a structured best-guess draft (a segment, hypothesis, persona,
-      score, or signal) for the user to validate, edit, or reject. Use instead
-      of describing a proposal in prose.
-    input_schema:
-      type: object
-      properties:
-        title:
-          type: string
-        items:
-          type: array
-          items:
-            type: object
-            properties:
-              label: { type: string }
-              value: { type: string }
-            required: [label, value]
-        note:
-          type: string
-      required: [title, items]
-
-  - type: custom
-    name: ask_choice
-    description: >
-      Ask the user to choose between 2-4 mutually exclusive options, only
-      when there is no reasonable basis to draft a guess.
-    input_schema:
-      type: object
-      properties:
-        question: { type: string }
-        options:
-          type: array
-          items: { type: string }
-          minItems: 2
-          maxItems: 4
-      required: [question, options]
+```bash
+npm run push-agent                   # agent Questioning
+node scripts/push-agent.mjs scoring  # agent Scoring
 ```
 
-Ajoutez aussi cette clause à votre `system` prompt existant (elle remplace
-la phrase "work like Claude's plan mode..." par une consigne d'usage
-explicite des tools) :
+Le pattern d'interaction : l'agent pose de vraies questions à réponses
+cliquables (concis, une question à la fois), et ne propose des drafts à
+valider que pour les segments finaux. Les custom tools ne sont pas exécutés
+par Anthropic — c'est votre backend qui reçoit l'appel et renvoie le
+résultat :
 
-```
-When you need input from the user, use the present_draft tool to propose
-your best-guess answer, or the ask_choice tool only when you have no
-reasonable basis to draft a guess. Never describe a proposal or ask a
-question in plain text.
-```
+- `ask_choice` — l'outil par défaut pour toute question : UNE question à la
+  fois, 2-4 options courtes et concrètes, rendues en boutons cliquables par
+  le front (+ un bouton « Autre… » pour une réponse libre). Le Scoring Agent
+  l'utilise aussi, avant de scorer, pour résoudre les critères trop flous
+  (max 4 questions, « Je ne sais pas encore » toujours proposé → le critère
+  reste `unscoreable` et part en knowledge gap).
+- `present_draft` — réservé aux cartes segment finales (Valider / Modifier /
+  Rejeter), le checkpoint humain avant le handoff au scoring.
+- `submit_segments` — handoff des segments validés vers le Scoring Agent.
 
 ## 2. Créer un environnement (une fois)
 
