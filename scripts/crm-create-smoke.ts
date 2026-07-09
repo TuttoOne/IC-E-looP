@@ -36,7 +36,19 @@ async function main() {
   }
   console.log(`   -> found id ${found.id}, company="${found.company}", source_list="${found.source_list}"`);
 
-  console.log('\nWRITE PATH GREEN — create + read-back both work.');
+  // Assert the fields we SET actually round-trip — a create that silently drops a field
+  // (source_list did exactly this) must fail the test, not print GREEN. See PR #1 discussion.
+  if (found.source_list !== SOURCE_LIST) {
+    throw new Error(
+      `source_list did not round-trip: sent "${SOURCE_LIST}", read back "${found.source_list}". ` +
+        'Backend POST /api/prospects is dropping the field.'
+    );
+  }
+  if (found.company !== 'IC(E)looP Smoke Test') {
+    throw new Error(`company did not round-trip: read back "${found.company}".`);
+  }
+
+  console.log('\nWRITE PATH GREEN — create + read-back both work, source_list tag persists.');
   console.log(`Cleanup: this left one test prospect (id ${result.prospectId}, ${email}).`);
   console.log(`Delete it in the CRM UI, or filter source_list="${SOURCE_LIST}" to find IC(E)looP test rows.`);
 }
