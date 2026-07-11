@@ -8,18 +8,21 @@ state"**, then **"How to run it"**, then dig into whichever section matches what
 
 A pipeline of Anthropic **Managed Agents** turns a founder's product description into a scored,
 enriched B2B ICP (Ideal Customer Profile), for **1POINT6**, piloted with **Rosk** (hospitality/
-multi-site restaurant & hotel chains). Four agents are built and chained automatically in the
-browser app; four more exist only as design docs (not runnable). A separate, older FullEnrich/
+multi-site restaurant & hotel chains). Five agents are built and chained automatically in the
+browser app; two more exist only as design docs (not runnable). A separate, older FullEnrich/
 HubSpot pipeline exists in `src/` and works, but is **not connected** to the agents below.
 
 ```
-Questioning (1) → Scoring (2) → Persona Builder (3) → Stakeholder Mapper (4) → [renders result, chain stops here]
+Questioning (1) → Scoring (2) → Persona Builder (3) → Stakeholder Mapper (4) → Content Listener (5) → [renders result, chain stops here]
 ```
 
 Each arrow is automatic: finishing one agent in the browser immediately starts a new session for
-the next one and forwards its structured output as the opening message. No agent past #4 exists
-yet, so Stakeholder Mapper's output is currently a dead end (rendered as a card, nothing consumes
-it further).
+the next one and forwards its structured output as the opening message. No agent past #5 exists
+yet, so Content Listener's output is currently a dead end (rendered as a card, nothing consumes
+it further). Content Listener also needs a field (`handoff_table`) from Agent 3's output that
+Agent 4 doesn't carry — the browser keeps a `lastPersonaResult` variable across the Stakeholder
+Mapper hop specifically to bridge this (same pattern as `lastValidatedSegments` bridges Agent 1's
+8-dimension segments across the Scoring Agent hop to Persona Builder).
 
 ## Architecture, in one page
 
@@ -44,18 +47,27 @@ it further).
     (`sillageLogLine`).
 - **`.env`** — real secrets, gitignored. `.env.example` documents every var name (see below).
 
-## What's built and verified (Agents 1-4)
+## What's built and verified (Agents 1-5)
 
 | # | Agent | Folder | Human-facing tools | Auto (`sillage_*`) tools | Hands off to |
 |---|---|---|---|---|---|
 | 1 | Questioning | `Agents/1 - Questionning Agent/` | `ask_choice`, `present_draft`, `submit_segments` | — | Scoring (on `submit_segments`) |
 | 2 | Scoring | `Agents/2 - Scoring Agent/` | `ask_choice`, `submit_ranking` | — | Persona Builder (on `submit_ranking`) |
 | 3 | Persona Builder | `Agents/3 - Persona Agent/` | `ask_choice`, `present_draft`, `submit_persona_result` | `get_persona`, `upsert_persona`, `read_top_accounts`, `add_top_accounts`, `enrich_company`, `get_mapping_stage` | Stakeholder Mapper (on `submit_persona_result`) |
-| 4 | Stakeholder Mapper | `Agents/4 - Stakeholder map agent/` | `ask_choice`, `present_draft`, `submit_stakeholder_map` | `read_top_accounts`, `list_company_mappings`, `get_company_mapping`, `enrich_company`, `get_mapping_stage` | *(nothing yet — terminal)* |
+| 4 | Stakeholder Mapper | `Agents/4 - Stakeholder map agent/` | `ask_choice`, `present_draft`, `submit_stakeholder_map` | `read_top_accounts`, `list_company_mappings`, `get_company_mapping`, `enrich_company`, `get_mapping_stage` | Content Listener (on `submit_stakeholder_map`) |
+| 5 | Content Listener | `Agents/5 - Content Listener agent/` | `ask_choice`, `present_draft`, `submit_content_listener_result` | `get_setup_state`, `list_company_mappings`, `get_agents`, `create_agent`, `configure_agent`, `get_watchlists`, `create_watchlist`, `add_watchlist_entities`, `launch_signal_run`, `get_signal_run`, `query_signals`, `get_content` | *(nothing yet — terminal)* |
 
-All four have been **live-tested** end to end (not just code-reviewed), including real Sillage
-API calls against the sandbox workspace. Agent 4 in particular was caught doing something wrong
-live (see "Bugs found and fixed" below) and the fix was verified before moving on.
+All five have been **live-tested** end to end (not just code-reviewed), including real Sillage
+API calls against the sandbox workspace. Agents 4 and 5 were each caught doing something wrong or
+hitting a real unknown live (see "Bugs found and fixed" below) and fixed/resolved before moving on.
+
+For Agents 4 and 5, live testing was deliberately stopped right after confirming the mandatory
+`present_draft` checkpoint correctly blocks any credit-consuming write (`enrich_company` /
+`create_agent`) until a human validates — the checkpoint held both times. The full run-to-completion
+path (real company mapping / real signal run) was not driven to the end in either case, to avoid
+adding more permanent clutter to the already-messy shared Sillage sandbox. Both agents reasoned
+correctly and, unprompted, flagged that the sandbox's test accounts don't match the Rosk segment
+(see "Sillage sandbox" note below) — a good sign for prompt quality, not a bug.
 
 ### Sillage REST endpoints — verified vs assumed
 
@@ -71,6 +83,29 @@ Base URL `https://api.getsillage.com`, `Authorization: Bearer <SILLAGE_API_KEY>`
 | `GET /api/v2/account-mapping/{id}/stage` | ✅ live-verified (including the normal "404 while in flight" case) |
 | `GET /api/v2/company-mappings` | ✅ live-verified |
 | `GET /api/v2/company-mappings/{id}` | ✅ live-verified (real profile shape captured, see note below) |
+| `GET /api/v2/setup-state` | ✅ live-verified (`persona_set`, `ingestion_complete`, `has_contents`, per-area `checklist`) |
+| `GET /api/v2/agents` (+ `/{id}`) | ✅ live-verified — 55 real (unrelated) detection agents already exist in the sandbox |
+| `GET /api/v2/watchlists` | ✅ live-verified |
+| `POST /api/v2/agents`, `PUT /api/v2/agents/{id}` | Found via the `sillage-api` skill in the `sillage-labs/skills` GitHub repo (see note below); not live-verified as a write |
+| `POST /api/v2/watchlists`, `POST /api/v2/watchlists/{kind}/{id}/entities` | Same source, not live-verified as a write |
+| `POST /api/v2/workspace/signal-runs` | Same source; the `/workspace/` prefix was the missing piece — not live-verified as a write (would create a real, permanent signal run in the shared sandbox) |
+| `GET /api/v2/workspace/signal-runs` (+ `/{id}`) | ✅ live-verified (empty list; `/{id}` gives a clean "Signal run not found" on a fake id) |
+| `GET /api/v2/workspace/signals/count` | ✅ live-verified (`{"total":17}`) |
+| `GET /api/v2/workspace/signals/{id}` | ✅ live-verified (clean "Signal not found" on a fake id) |
+| `POST /api/v2/contents/query` | ✅ live-verified — used as the `list_signals`/feed-reading tool (a bare `GET /workspace/signals` list endpoint does not seem to exist; this is the real "query the signal base" endpoint per both the PDF doc and the GitHub skill) |
+| `GET /api/v2/contents/{id}` | Documented, simple GET-by-id, not separately live-verified |
+
+**How the Content Listener's endpoints were actually found** (worth remembering next time an
+endpoint is "undocumented"): the design doc's cited MCP tool names (`create_agent`,
+`launch_signal_run`, `list_signals`, etc.) had zero match in this project's existing memory doc,
+and a dozen-plus blind path guesses (`/signal-runs`, `/agents/{id}/runs`, ...) all 404'd or gave a
+generic/uninformative 405. Two things unblocked it: (1) the user pointed to a PDF at
+`.claude/skills/Documentation endpoints API (1).pdf` — which turned out to be a duplicate of what
+was already in memory and didn't cover agents/signal-runs at all; (2) fetching the **public**
+`sillage-labs/skills` GitHub repo's `sillage-api` skill (`raw.githubusercontent.com/.../SKILL.md`)
+directly gave the real paths, including the non-obvious `/api/v2/workspace/signal-runs` prefix
+that no amount of guessing had produced. Each newly-learned path was then re-verified live with a
+plain `curl` before being wired into `server.js` — don't skip that step just because a doc says so.
 
 **Real `profiles[]` shape** (from a live `get_company_mapping` call — differs slightly from the
 older design docs, which assumed a single `name` field and a flat `location` string):
@@ -86,13 +121,10 @@ exist): `get_company` (company-level enrichment — headcount/HQ/industry lookup
 
 ## What's NOT built
 
-- **Content Listener (5), Signal Aggregator (6), Hypothesis Validator (7)** — full design docs
-  exist under `Agents/5.../`, `Agents/6.../`, `Agents/7.../` but none has an `agent.json`; they
-  are not runnable. Signal Aggregator and Hypothesis Validator are pure decision/scoring agents
-  with **no external API calls** — the easiest to build next, but they need Content Listener's
-  and Stakeholder Mapper's output as real input to be useful, and Stakeholder Mapper output is
-  currently a dead end. Content Listener needs several Sillage endpoints (agent CRUD, signal
-  runs) that are **pure guesses with no documentation basis** — highest-risk agent to build.
+- **Signal Aggregator (6), Hypothesis Validator (7)** — full design docs exist under
+  `Agents/6.../`, `Agents/7.../` but neither has an `agent.json`; not runnable yet. Both are pure
+  decision/scoring agents with **no external API calls** — the lowest-risk agents to build next,
+  now that Content Listener gives them real (or at least realistic test) input to consume.
 - **"Agent 8" / Contact Enricher** — mentioned in the pitch deck as the 8th pipeline stage
   ("delivers a fully-enriched, ready-to-work account") but **has no folder, no spec, nothing** —
   it's a deck concept only.
@@ -177,7 +209,7 @@ subsequent runs push a new immutable version of the existing agent.
 
 `SILLAGE_API_KEY`, `FULLENRICH_API_KEY`, `ANTHROPIC_API_KEY`, `HUBSPOT_PRIVATE_APP_TOKEN` (empty
 today — no HubSpot access yet), `AGENT_ID`, `SCORING_AGENT_ID`, `PERSONA_AGENT_ID`,
-`STAKEHOLDER_AGENT_ID`, `ENVIRONMENT_ID`, `PORT`.
+`STAKEHOLDER_AGENT_ID`, `CONTENT_LISTENER_AGENT_ID`, `ENVIRONMENT_ID`, `PORT`.
 
 ## Repo / git state (as of this writing)
 
@@ -193,12 +225,10 @@ today — no HubSpot access yet), `AGENT_ID`, `SCORING_AGENT_ID`, `PERSONA_AGENT
 
 ## Suggested next step
 
-Signal Aggregator and Hypothesis Validator are the lowest-risk agents to build next (no external
-API calls at all — pure decision/scoring logic over structured JSON), but they need real input
-from Content Listener and Stakeholder Mapper to be useful in the full chain. Realistically:
-either (a) build Content Listener next despite its unverified Sillage endpoints (biggest risk,
-but completes the chain), or (b) build Signal Aggregator + Hypothesis Validator now against
-hand-crafted test input (matching how each agent above was smoke-tested before its upstream
-existed) so they're ready the moment Content Listener lands. Ask the user which before starting
-either — this was a deliberate scoping decision made earlier (see git history / this file's
-"what's NOT built" section), not an oversight.
+Signal Aggregator and Hypothesis Validator are next — both are pure decision/scoring agents with
+**no external API calls at all**, and Content Listener now exists to feed them (even if not yet
+driven to a real completed signal run — see the live-testing note above). This closes out the
+full SIG-01/02/03 signal-detection phase; Hypothesis Validator's output (kill-gate 2, resolved
+knowledge gaps) is the natural point to loop back and reconsider whether any of this should
+eventually connect to the separate FullEnrich/HubSpot pipeline in `src/` (currently disconnected,
+see "What's NOT built").

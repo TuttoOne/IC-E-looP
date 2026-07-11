@@ -78,6 +78,29 @@ const SILLAGE_TOOLS = {
   },
   sillage_get_company_mapping: (input) =>
     sillageRequest("GET", `/api/v2/company-mappings/${input.mapping_id}`),
+  sillage_get_setup_state: () => sillageRequest("GET", "/api/v2/setup-state"),
+  sillage_get_agents: (input) =>
+    input.agent_id
+      ? sillageRequest("GET", `/api/v2/agents/${input.agent_id}`)
+      : sillageRequest("GET", "/api/v2/agents"),
+  sillage_create_agent: (input) => sillageRequest("POST", "/api/v2/agents", input),
+  sillage_configure_agent: (input) => {
+    const { agent_id, ...body } = input;
+    return sillageRequest("PUT", `/api/v2/agents/${agent_id}`, body);
+  },
+  sillage_get_watchlists: () => sillageRequest("GET", "/api/v2/watchlists"),
+  sillage_create_watchlist: (input) => sillageRequest("POST", "/api/v2/watchlists", input),
+  sillage_add_watchlist_entities: (input) => {
+    const { kind, watchlist_id, entities } = input;
+    return sillageRequest("POST", `/api/v2/watchlists/${kind}/${watchlist_id}/entities`, { entities });
+  },
+  sillage_launch_signal_run: (input) =>
+    sillageRequest("POST", "/api/v2/workspace/signal-runs", input),
+  sillage_get_signal_run: (input) =>
+    sillageRequest("GET", `/api/v2/workspace/signal-runs/${input.signal_request_id}`),
+  sillage_query_signals: (input) => sillageRequest("POST", "/api/v2/contents/query", input),
+  sillage_get_content: (input) =>
+    sillageRequest("GET", `/api/v2/contents/${input.content_id}`),
 };
 
 function sleep(ms) {
@@ -149,6 +172,8 @@ app.post("/api/session", async (req, res) => {
         ? process.env.PERSONA_AGENT_ID
         : which === "stakeholder"
         ? process.env.STAKEHOLDER_AGENT_ID
+        : which === "listener"
+        ? process.env.CONTENT_LISTENER_AGENT_ID
         : process.env.AGENT_ID;
     const title =
       which === "scoring"
@@ -157,6 +182,8 @@ app.post("/api/session", async (req, res) => {
         ? "Persona Builder session"
         : which === "stakeholder"
         ? "Stakeholder Mapper session"
+        : which === "listener"
+        ? "Content Listener session"
         : "ICP Discovery session";
     const r = await fetch(`${API_BASE}/sessions`, {
       method: "POST",

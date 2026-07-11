@@ -567,6 +567,7 @@
 
     appendMessage(card);
     sendToolResult(evt.id, "Persona result displayed to the user.");
+    lastPersonaResult = evt.input;
     startStakeholderMapper(evt);
   }
 
@@ -715,6 +716,124 @@
 
     appendMessage(card);
     sendToolResult(evt.id, "Stakeholder map displayed to the user.");
+    startContentListener(evt);
+  }
+
+  // agent.custom_tool_use with name "submit_content_listener_result" — the
+  // Content Listener agent's normalized signal feed for the Signal Aggregator.
+  function contentListenerCard(evt) {
+    const p = evt.input || {};
+    const card = document.createElement("div");
+    card.style.cssText = "align-self: flex-start; max-width: 90%; border: 1px solid #BBF7D0; background: #F0FDF4; border-radius: 12px; padding: 14px 16px;";
+
+    const badge = document.createElement("div");
+    badge.textContent = "Signal feed — " + (p.segment_name || p.segment_id || "");
+    badge.style.cssText = "font-size: 11px; font-weight: 600; color: #15803D; background: #DCFCE7; display: inline-block; padding: 2px 8px; border-radius: 20px; margin-bottom: 10px;";
+    card.appendChild(badge);
+
+    if ((p.agents_created || []).length) {
+      const title = document.createElement("div");
+      title.textContent = "Agents created/configured";
+      title.style.cssText = "font-size: 12px; font-weight: 600; color: #4338CA; margin-bottom: 4px;";
+      card.appendChild(title);
+      p.agents_created.forEach((a) => {
+        const row = document.createElement("div");
+        row.textContent = "• " + a.name + " (" + a.type + ")" + ((a.keywords || []).length ? " — " + a.keywords.join(", ") : "");
+        row.style.cssText = "font-size: 12px; color: #6B7280; line-height: 1.4; margin-bottom: 2px;";
+        card.appendChild(row);
+      });
+    }
+
+    if ((p.signals || []).length) {
+      const title = document.createElement("div");
+      title.textContent = "Signals detected (" + p.signals.length + ")";
+      title.style.cssText = "font-size: 12px; font-weight: 600; color: #4338CA; margin: 10px 0 4px;";
+      card.appendChild(title);
+      p.signals.forEach((s) => {
+        const row = document.createElement("div");
+        row.style.cssText = "font-size: 12.5px; color: #1A1D23; line-height: 1.4; margin-bottom: 4px;";
+        const weightColor = s.weight === "High" ? "#B91C1C" : s.weight === "Medium" ? "#C2410C" : "#6B7280";
+        row.innerHTML =
+          "• <b>" + s.account_domain + "</b> — " + s.icp_criterion + " (" + s.detection_type + ", " + s.date + ") " +
+          '<span style="color:' + weightColor + '; font-weight:600;">' + s.weight + "</span>" +
+          (s.urgency_segment_indicative ? ' <span style="color:#9CA3AF;">[urgency: ' + s.urgency_segment_indicative + "]</span>" : "");
+        card.appendChild(row);
+        if (s.source) {
+          const src = document.createElement("div");
+          src.textContent = "   " + s.source;
+          src.style.cssText = "font-size: 11.5px; color: #9CA3AF; font-style: italic; margin: 0 0 4px 10px;";
+          card.appendChild(src);
+        }
+      });
+    } else {
+      const none = document.createElement("div");
+      none.textContent = "No signals detected yet.";
+      none.style.cssText = "font-size: 12.5px; color: #6B7280; margin: 8px 0;";
+      card.appendChild(none);
+    }
+
+    if ((p.silent_accounts || []).length) {
+      const title = document.createElement("div");
+      title.textContent = "Silent accounts (silence ≠ disinterest)";
+      title.style.cssText = "font-size: 12px; font-weight: 600; color: #C2410C; margin: 10px 0 4px;";
+      card.appendChild(title);
+      p.silent_accounts.forEach((s) => {
+        const row = document.createElement("div");
+        row.textContent = "• " + s.account_domain + (s.possible_coverage_gap ? " (possible coverage gap — check enrich_company)" : "");
+        row.style.cssText = "font-size: 12px; color: #6B7280; line-height: 1.4;";
+        card.appendChild(row);
+      });
+    }
+
+    if ((p.tuning_recommendations || []).length) {
+      const title = document.createElement("div");
+      title.textContent = "Tuning recommendations";
+      title.style.cssText = "font-size: 12px; font-weight: 600; color: #4338CA; margin: 10px 0 4px;";
+      card.appendChild(title);
+      p.tuning_recommendations.forEach((t) => {
+        const row = document.createElement("div");
+        row.textContent = "• " + t;
+        row.style.cssText = "font-size: 12px; color: #6B7280; line-height: 1.4;";
+        card.appendChild(row);
+      });
+    }
+
+    appendMessage(card);
+    sendToolResult(evt.id, "Signal feed displayed to the user.");
+  }
+
+  // Called right after the Stakeholder Mapper's power map is shown: hands the
+  // segment's handoff table + top accounts + reachability status to the
+  // Content Listener, which will configure Sillage detection agents.
+  async function startContentListener(evt) {
+    bubble("assistant", "Starting the Content Listener to configure signal detection…");
+    setStatus("Connecting to the Content Listener...", "busy");
+    let r, data;
+    try {
+      r = await fetch(`${BACKEND}/api/session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent: "listener" }),
+      });
+      data = await r.json();
+    } catch (err) {
+      setStatus("Connection error", "error");
+      bubble("assistant", "Backend unreachable while starting the Content Listener: " + err.message);
+      return;
+    }
+    if (!r.ok) {
+      setStatus("Connection error", "error");
+      bubble("assistant", "Could not create the Content Listener session: " + JSON.stringify(data));
+      return;
+    }
+    sessionId = data.sessionId;
+    connectStream();
+    sendMessage(
+      "Here is the Persona Builder's handoff table (ICP criterion -> agent type -> keywords -> indicative weight) and the Stakeholder Mapper's per-account power maps. Configure Sillage detection agents for the High-priority criteria first, following the mandatory keyword checkpoint before creating anything.\n\n" +
+        "Persona Builder handoff_table (and segment context):\n" + JSON.stringify(lastPersonaResult, null, 2) + "\n\n" +
+        "Stakeholder Mapper power maps:\n" + JSON.stringify(evt.input, null, 2),
+      true
+    );
   }
 
   // Called right after the Persona Builder's result is shown: hands the
@@ -807,6 +926,7 @@
         else if (evt.name === "submit_ranking") renderRanking(evt);
         else if (evt.name === "submit_persona_result") personaResultCard(evt);
         else if (evt.name === "submit_stakeholder_map") stakeholderMapCard(evt);
+        else if (evt.name === "submit_content_listener_result") contentListenerCard(evt);
         else if (evt.name && evt.name.startsWith("sillage_")) sillageLogLine(evt);
         break;
       case "agent.tool_use":
@@ -835,6 +955,10 @@
   // Kept so the Persona Builder (started after scoring) can receive the same
   // 8-dimension ICP-01 segments the Scoring Agent scored, not just the ranking.
   let lastValidatedSegments = null;
+  // Kept so the Content Listener (started after the Stakeholder Mapper) can
+  // receive the Persona Builder's handoff_table, which the Stakeholder
+  // Mapper's own output doesn't carry.
+  let lastPersonaResult = null;
 
   // Called when the questioning agent signals that all segments were
   // validated (submit_segments): switch the UI to a fresh scoring session.

@@ -35,6 +35,10 @@ const AGENTS = {
     envVar: "STAKEHOLDER_AGENT_ID",
     file: join("Agents", "4 - Stakeholder map agent", "agent.json"),
   },
+  listener: {
+    envVar: "CONTENT_LISTENER_AGENT_ID",
+    file: join("Agents", "5 - Content Listener agent", "agent.json"),
+  },
 };
 
 const target = process.argv[2] || "questioning";
