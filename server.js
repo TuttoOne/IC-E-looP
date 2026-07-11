@@ -69,11 +69,27 @@ const SILLAGE_TOOLS = {
     sillageRequest("POST", "/api/v2/enrich-company-mapping", input),
   sillage_get_mapping_stage: (input) =>
     sillageRequest("GET", `/api/v2/account-mapping/${input.mapping_id}/stage`),
+  sillage_list_company_mappings: (input) => {
+    const qs = new URLSearchParams();
+    if (input.page) qs.set("page", input.page);
+    if (input.page_size) qs.set("page_size", input.page_size);
+    const q = qs.toString();
+    return sillageRequest("GET", `/api/v2/company-mappings${q ? `?${q}` : ""}`);
+  },
+  sillage_get_company_mapping: (input) =>
+    sillageRequest("GET", `/api/v2/company-mappings/${input.mapping_id}`),
 };
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 // Executes a sillage_* custom tool call for real and posts the result back
 // to the session as a user.custom_tool_result — the Persona Builder agent
 // never waits on the browser for these, only for ask_choice/present_draft.
+// The post-back retries a couple of times on transient network errors
+// (e.g. ECONNRESET) so a single blip doesn't strand the agent waiting
+// forever on a tool result it will never receive.
 async function handleSillageTool(sessionId, event) {
   const handler = SILLAGE_TOOLS[event.name];
   if (!handler) return;
@@ -84,22 +100,30 @@ async function handleSillageTool(sessionId, event) {
   } catch (e) {
     resultText = `Error calling Sillage (${event.name}): ${e.message}`;
   }
-  try {
-    await fetch(`${API_BASE}/sessions/${sessionId}/events`, {
-      method: "POST",
-      headers: anthropicHeaders(),
-      body: JSON.stringify({
-        events: [
-          {
-            type: "user.custom_tool_result",
-            custom_tool_use_id: event.id,
-            content: [{ type: "text", text: resultText }],
-          },
-        ],
-      }),
-    });
-  } catch (e) {
-    console.error("Failed to post Sillage tool result", e);
+
+  const backoffs = [0, 500, 1500];
+  for (let attempt = 0; attempt < backoffs.length; attempt++) {
+    if (backoffs[attempt]) await sleep(backoffs[attempt]);
+    try {
+      await fetch(`${API_BASE}/sessions/${sessionId}/events`, {
+        method: "POST",
+        headers: anthropicHeaders(),
+        body: JSON.stringify({
+          events: [
+            {
+              type: "user.custom_tool_result",
+              custom_tool_use_id: event.id,
+              content: [{ type: "text", text: resultText }],
+            },
+          ],
+        }),
+      });
+      return;
+    } catch (e) {
+      if (attempt === backoffs.length - 1) {
+        console.error("Failed to post Sillage tool result after retries", e);
+      }
+    }
   }
 }
 
@@ -123,12 +147,16 @@ app.post("/api/session", async (req, res) => {
         ? process.env.SCORING_AGENT_ID
         : which === "persona"
         ? process.env.PERSONA_AGENT_ID
+        : which === "stakeholder"
+        ? process.env.STAKEHOLDER_AGENT_ID
         : process.env.AGENT_ID;
     const title =
       which === "scoring"
         ? "ICP Scoring session"
         : which === "persona"
         ? "Persona Builder session"
+        : which === "stakeholder"
+        ? "Stakeholder Mapper session"
         : "ICP Discovery session";
     const r = await fetch(`${API_BASE}/sessions`, {
       method: "POST",
@@ -143,7 +171,9 @@ app.post("/api/session", async (req, res) => {
     if (!r.ok) return res.status(r.status).json(data);
 
     sessionStreams.set(data.id, new Set());
-    openUpstreamStream(data.id);
+    openUpstreamStream(data.id).catch((e) =>
+      console.error("openUpstreamStream rejected unexpectedly", e)
+    );
     res.json({ sessionId: data.id });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -243,42 +273,52 @@ app.post("/api/session/:id/tool-confirmation", async (req, res) => {
 
 // Opens the upstream SSE connection to Anthropic once per session and
 // fans events out to every connected browser client for that session.
+// Called fire-and-forget (no await at the call site) — everything in here
+// must be caught internally, since an uncaught rejection from a
+// fire-and-forget async call crashes the whole Node process, not just this
+// one session (this is what a mid-stream ECONNRESET used to do).
 async function openUpstreamStream(sessionId) {
-  const r = await fetch(`${API_BASE}/sessions/${sessionId}/events/stream`, {
-    method: "GET",
-    headers: anthropicHeaders(),
-  });
+  try {
+    const r = await fetch(`${API_BASE}/sessions/${sessionId}/events/stream`, {
+      method: "GET",
+      headers: anthropicHeaders(),
+    });
 
-  if (!r.ok || !r.body) {
-    console.error("Failed to open upstream stream", r.status, await r.text());
-    return;
-  }
+    if (!r.ok || !r.body) {
+      console.error("Failed to open upstream stream", r.status, await r.text());
+      return;
+    }
 
-  const reader = r.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
 
-    const chunks = buffer.split("\n\n");
-    buffer = chunks.pop(); // keep the last partial chunk
+      const chunks = buffer.split("\n\n");
+      buffer = chunks.pop(); // keep the last partial chunk
 
-    for (const chunk of chunks) {
-      const line = chunk.split("\n").find((l) => l.startsWith("data:"));
-      if (!line) continue;
-      try {
-        const event = JSON.parse(line.slice(5).trim());
-        broadcast(sessionId, event);
-        if (event.type === "agent.custom_tool_use" && SILLAGE_TOOLS[event.name]) {
-          handleSillageTool(sessionId, event);
+      for (const chunk of chunks) {
+        const line = chunk.split("\n").find((l) => l.startsWith("data:"));
+        if (!line) continue;
+        try {
+          const event = JSON.parse(line.slice(5).trim());
+          broadcast(sessionId, event);
+          if (event.type === "agent.custom_tool_use" && SILLAGE_TOOLS[event.name]) {
+            handleSillageTool(sessionId, event);
+          }
+        } catch {
+          // ignore malformed / keep-alive lines
         }
-      } catch {
-        // ignore malformed / keep-alive lines
       }
     }
+  } catch (e) {
+    // e.g. ECONNRESET mid-stream — this session's live updates stop, but the
+    // rest of the server (and every other session) keeps running.
+    console.error("Upstream stream for session", sessionId, "failed:", e);
   }
 }
 
